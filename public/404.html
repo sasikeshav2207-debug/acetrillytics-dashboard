@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Acetrillytics Research</title>
+  <script>
+    // GitHub Pages serves 404.html for unknown paths. React Router owns these routes,
+    // so bounce to index.html with the original path preserved; App restores it.
+    var path = window.location.pathname + window.location.search + window.location.hash;
+    window.location.replace('/?redirect=' + encodeURIComponent(path));
+  </script>
+</head>
+<body></body>
+</html>

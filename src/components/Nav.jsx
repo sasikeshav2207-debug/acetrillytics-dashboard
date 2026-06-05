@@ -31,6 +31,10 @@ export default function Nav() {
               paddingBottom: 2,
             }}>{l.label}</Link>
           ))}
+          <span title="Report generation runs in the local Streamlit dashboard"
+            style={{ fontSize: 13, color: '#AAA', cursor: 'default' }}>
+            New Research → use local dashboard
+          </span>
           <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
         </div>
       </div>
