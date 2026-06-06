@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { COLORS, disp, num } from '../lib/format'
 import MetricCard from '../components/MetricCard.jsx'
 import PriceChart from '../components/PriceChart.jsx'
@@ -13,36 +14,50 @@ import ThesisTab from '../components/ThesisTab.jsx'
 const TABS = ['Overview', 'Financials', 'Shareholding', 'Technicals', 'Thesis']
 const HEADLINE = [['pe_ttm', 'P/E (TTM)'], ['pb_ratio', 'P/B'], ['ev_ebitda', 'EV/EBITDA'],
   ['roce', 'ROCE'], ['roe', 'ROE'], ['opm', 'OPM']]
-const SH_FIELDS = ['promoter_holding', 'fii_holding', 'dii_holding', 'mf_holding', 'public_holding']
 
 export default function Company() {
   const { isin } = useParams()
   const [tab, setTab] = useState('Overview')
   const [s, setS] = useState(null)
+  const [err, setErr] = useState('')
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false
+    ;(async () => {
+      // LIVE metrics from the API (latest REPORTED fiscal year) — not the frozen thesis
+      // snapshot, so growth/leverage/valuation always reflect current reported data.
+      const m = {}
+      let period = ''
+      try {
+        const ms = await api.getMetrics(isin)
+        period = ms.period || ''
+        for (const r of ms.metrics || []) {
+          m[r.name] = { name: r.name, available: r.available, value: r.value, unit: r.unit }
+        }
+      } catch (e) {
+        if (!cancelled) setErr(e.message)
+      }
+      // Thesis (optional) — for the Thesis tab + status pill. Children from Supabase.
       const { data: theses } = await supabase.from('thesis').select('*').eq('isin', isin)
-      const t = (theses || []).sort((a, b) => (b.version || 0) - (a.version || 0))[0]
-      if (!t) { setS({ missing: true }); return }
-      const tid = t.thesis_id
-      const [metricsR, flagsR, killsR, scenR, commR, goldR, closeR, shR] = await Promise.all([
-        supabase.from('thesis_snapshot_metric').select('*').eq('thesis_id', tid),
-        supabase.from('thesis_snapshot_flag').select('*').eq('thesis_id', tid),
-        supabase.from('thesis_kill_criterion').select('*').eq('thesis_id', tid),
-        supabase.from('thesis_scenario').select('*').eq('thesis_id', tid),
-        supabase.from('thesis_management_commentary').select('*').eq('thesis_id', tid),
+      const t = (theses || []).sort((a, b) => (b.version || 0) - (a.version || 0))[0] || null
+      let kills = [], scenarios = [], commentary = []
+      if (t) {
+        const tid = t.thesis_id
+        const [killsR, scenR, commR] = await Promise.all([
+          supabase.from('thesis_kill_criterion').select('*').eq('thesis_id', tid),
+          supabase.from('thesis_scenario').select('*').eq('thesis_id', tid),
+          supabase.from('thesis_management_commentary').select('*').eq('thesis_id', tid),
+        ])
+        kills = killsR.data || []; scenarios = scenR.data || []; commentary = commR.data || []
+      }
+      // Annual P&L + price closes from the golden store (live).
+      const [goldR, closeR] = await Promise.all([
         supabase.from('golden_records').select('field,period_label,value')
           .eq('isin', isin).in('field', ['revenue', 'pat', 'ebit']).eq('period_basis', 'FY'),
         supabase.from('golden_records').select('period_label,value')
           .eq('isin', isin).eq('field', 'close').eq('period_basis', 'POINT')
-          .order('period_label', { ascending: false }).limit(1000),
-        supabase.from('golden_records').select('field,period_label,value')
-          .eq('isin', isin).in('field', SH_FIELDS),
+          .order('period_label', { ascending: false }).limit(2000),
       ])
-      const m = {}
-      for (const r of metricsR.data || []) m[r.name] = r
-      // Annual P&L
       const byFy = {}
       for (const r of goldR.data || []) {
         byFy[r.period_label] = byFy[r.period_label] || { fy: r.period_label }
@@ -50,35 +65,28 @@ export default function Company() {
       }
       const fy = Object.values(byFy).sort((a, b) =>
         parseInt(a.fy.replace(/\D/g, '')) - parseInt(b.fy.replace(/\D/g, '')))
-      // Price closes ascending
       const closes = (closeR.data || []).map((r) => ({
         date: r.period_label.replace(/^AT/, ''), close: r.value,
       })).sort((a, b) => a.date.localeCompare(b.date))
-      // Shareholding (likely empty)
-      const shByQ = {}
-      for (const r of shR.data || []) {
-        shByQ[r.period_label] = shByQ[r.period_label] || { quarter: r.period_label }
-        shByQ[r.period_label][r.field.replace('_holding', '')] = r.value
-      }
-      const shareholding = Object.values(shByQ)
-      setS({ t, m, flags: flagsR.data || [], kills: killsR.data || [],
-        scenarios: scenR.data || [], commentary: commR.data || [], fy, closes, shareholding })
+      if (!cancelled) setS({ t, m, period, kills, scenarios, commentary, fy, closes })
     })()
+    return () => { cancelled = true }
   }, [isin])
 
   if (!s) return <div>Loading…</div>
-  if (s.missing) return <div><h1>{isin}</h1><p className="muted">No thesis found.</p></div>
-  const { t, m } = s
+  const { t, m, period } = s
+  const ticker = t?.ticker || isin
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1 style={{ margin: 0 }}>{t.ticker}</h1>
+        <h1 style={{ margin: 0 }}>{ticker}</h1>
         <div className="muted" style={{ fontSize: 13 }}>
-          Last close <span className="mono">{disp(m.latest_close)}</span> · {t.target_fy}
+          Last close <span className="mono">{disp(m.latest_close)}</span>{period ? ` · ${period}` : ''}
         </div>
       </div>
       <div className="kicker" style={{ marginTop: 4 }}>{isin}</div>
+      {err && <div style={{ color: COLORS.red, fontSize: 12, marginTop: 6 }}>{err}</div>}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 22, borderBottom: `1px solid ${COLORS.border}`,
@@ -104,15 +112,19 @@ export default function Company() {
               ))}
             </div>
           </div>
-          <RatingsPanel metrics={m} status={t.status} />
+          <RatingsPanel metrics={m} status={t?.status || 'No data'} />
         </div>
       )}
       {tab === 'Financials' && <FinancialsTab metrics={m} fy={s.fy} />}
       {tab === 'Shareholding' && <ShareholdingTab isin={isin} />}
       {tab === 'Technicals' && <TechnicalsTab metrics={m} />}
       {tab === 'Thesis' && (
-        <ThesisTab thesis={t} kills={s.kills} scenarios={s.scenarios}
-          commentary={s.commentary} metrics={m} />
+        t ? (
+          <ThesisTab thesis={t} kills={s.kills} scenarios={s.scenarios}
+            commentary={s.commentary} metrics={m} />
+        ) : (
+          <div className="card muted">No thesis recorded for this company yet.</div>
+        )
       )}
     </div>
   )
