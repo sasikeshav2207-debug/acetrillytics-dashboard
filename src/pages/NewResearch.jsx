@@ -69,6 +69,8 @@ export default function NewResearch() {
   const [drafting, setDrafting] = useState(false)
   const [draftSource, setDraftSource] = useState('')
   const [draftError, setDraftError] = useState('')
+  const [transcript, setTranscript] = useState('')
+  const [showPaste, setShowPaste] = useState(false)
 
   // submission state
   const [submitting, setSubmitting] = useState(false)
@@ -117,21 +119,37 @@ export default function NewResearch() {
   const ticker = useMemo(
     () => companies.find((c) => c.isin === isin)?.nse_symbol || '', [companies, isin])
 
+  const applyDraft = (d) => {
+    const items = (d.commentary || []).map((c) => ({
+      text: c.text || '', source_doc: c.source_doc || d.source_doc || '',
+      source_date: (c.source_date || d.source_date || '').slice(0, 10),
+      topic: TOPICS.includes(c.topic) ? c.topic : 'other',
+      target_date: (c.target_date || '').slice(0, 10),
+    })).filter((c) => c.text)
+    if (items.length) setCommentary(items)
+    if (!thesisStatement && d.thesis_statement) setThesisStatement(d.thesis_statement)
+    setDraftSource(`${d.source_doc || 'source'}${d.source_date ? ` (${d.source_date})` : ''}`
+      + ` — ${items.length} commentary item(s) drafted. Review every quote.`)
+  }
+
   const draftFromEarnings = async () => {
     if (!isin) { setDraftError('Pick a company first (Step 1).'); return }
     setDrafting(true); setDraftError(''); setDraftSource('')
     try {
-      const d = await api.earningsDraft(isin, Number(targetFy))
-      const items = (d.commentary || []).map((c) => ({
-        text: c.text || '', source_doc: c.source_doc || d.source_doc || '',
-        source_date: (c.source_date || d.source_date || '').slice(0, 10),
-        topic: TOPICS.includes(c.topic) ? c.topic : 'other',
-        target_date: (c.target_date || '').slice(0, 10),
-      })).filter((c) => c.text)
-      if (items.length) setCommentary(items)
-      if (!thesisStatement && d.thesis_statement) setThesisStatement(d.thesis_statement)
-      setDraftSource(`${d.source_doc || 'BSE filing'}${d.source_date ? ` (${d.source_date})` : ''}`
-        + ` — ${items.length} commentary item(s) drafted. Review every quote.`)
+      applyDraft(await api.earningsDraft(isin, Number(targetFy)))
+    } catch (e) {
+      setDraftError(e.message)
+    } finally {
+      setDrafting(false)
+    }
+  }
+
+  const draftFromPaste = async () => {
+    if (!isin) { setDraftError('Pick a company first (Step 1).'); return }
+    if (!transcript.trim()) { setDraftError('Paste the transcript text first.'); return }
+    setDrafting(true); setDraftError(''); setDraftSource('')
+    try {
+      applyDraft(await api.draftFromText(isin, transcript, Number(targetFy)))
     } catch (e) {
       setDraftError(e.message)
     } finally {
@@ -335,11 +353,24 @@ export default function NewResearch() {
               onClick={draftFromEarnings}>
               {drafting ? 'Fetching from BSE…' : 'Auto-fetch from latest earnings call (BSE)'}
             </button>
+            <span style={{ fontSize: 12, color: COLORS.gold, cursor: 'pointer' }}
+              onClick={() => setShowPaste((v) => !v)}>
+              {showPaste ? 'Hide paste box' : 'or paste transcript'}
+            </span>
             <span style={{ fontSize: 11, color: COLORS.muted }}>
-              Pulls the latest transcript from BSE filings and drafts verbatim quotes — review
-              each before generating.
+              Searches BSE up to ~3 years back and drafts verbatim quotes — review each.
             </span>
           </div>
+          {showPaste && (
+            <div style={{ marginBottom: 10 }}>
+              <textarea className="input" rows={5} placeholder="Paste the earnings-call transcript text here…"
+                value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+              <button className="btn btn-ghost" style={{ marginTop: 6 }}
+                disabled={drafting || !transcript.trim()} onClick={draftFromPaste}>
+                {drafting ? 'Drafting…' : 'Draft from pasted transcript'}
+              </button>
+            </div>
+          )}
           {draftSource && (
             <div style={{ fontSize: 12, color: COLORS.green, marginBottom: 8 }}>{draftSource}</div>
           )}
