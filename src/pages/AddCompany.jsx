@@ -25,7 +25,7 @@ export default function AddCompany() {
     try {
       const { data, error: e } = await supabase
         .from('entity_master')
-        .select('isin,name,nse_symbol,bse_scrip_code')
+        .select('isin,name,nse_symbol,bse_code')
         .or(`name.ilike.%${query}%,nse_symbol.ilike.%${query}%,isin.ilike.%${query}%`)
         .limit(20)
       if (e) throw e
@@ -40,7 +40,7 @@ export default function AddCompany() {
     try {
       const out = await api.createCompany({
         isin: c.isin, name: c.name, nse_symbol: c.nse_symbol || '',
-        bse_code: c.bse_scrip_code || c.bse_code || '',
+        bse_code: c.bse_code || '',
       })
       setMsg(`Registered ${out.nse_symbol || out.isin}.`)
       setSelectedIsin(out.isin)
