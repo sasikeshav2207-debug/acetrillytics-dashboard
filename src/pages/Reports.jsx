@@ -25,18 +25,24 @@ export default function Reports() {
       return withUrls
     } catch (e) {
       setError(e.message)
+      setRows([])  // never leave the page stuck on "Loading…" if the API call fails
       return []
     }
   }, [])
 
   useEffect(() => {
     let cancelled = false
+    let polls = 0
+    const MAX_POLLS = 20  // ~10 min; don't poll forever when reports simply don't exist yet
     const tick = async () => {
       const r = await load()
       if (cancelled) return
-      // Keep refreshing while any thesis still lacks all four files.
+      // Keep refreshing while any thesis still lacks all four files, up to MAX_POLLS.
       const anyPending = r.some((t) => FILES.some(([, f]) => !t.urls?.[f]))
-      if (anyPending) timer.current = setTimeout(tick, 30000)
+      if (anyPending && polls < MAX_POLLS) {
+        polls += 1
+        timer.current = setTimeout(tick, 30000)
+      }
     }
     tick()
     return () => { cancelled = true; if (timer.current) clearTimeout(timer.current) }
