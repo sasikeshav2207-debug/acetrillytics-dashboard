@@ -10,6 +10,7 @@ import NewResearch from './pages/NewResearch.jsx'
 import AddCompany from './pages/AddCompany.jsx'
 import ImportAngelOne from './pages/ImportAngelOne.jsx'
 import Perspectives from './pages/Perspectives.jsx'
+import Slides from './pages/Slides.jsx'
 
 function RequireAuth() {
   const [session, setSession] = useState(undefined) // undefined = still loading
@@ -32,6 +33,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      {/* Slide renderer — NO auth guard (rendered headlessly by Puppeteer with injected data) */}
+      <Route path="/slides/:thesisId/:slideNumber" element={<Slides />} />
       <Route element={<RequireAuth />}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/companies" element={<Dashboard />} />
