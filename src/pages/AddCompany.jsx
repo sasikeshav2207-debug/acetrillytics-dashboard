@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { COLORS } from '../lib/format'
 
@@ -8,47 +7,58 @@ const label = { fontSize: 12, color: COLORS.muted, display: 'block', marginBotto
 export default function AddCompany() {
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState([])
-  const [searched, setSearched] = useState(false)
-  const [manual, setManual] = useState({ isin: '', name: '', nse_symbol: '', bse_code: '' })
+  const [searching, setSearching] = useState(false)
+  const [picked, setPicked] = useState(null)        // {isin,name,nse_symbol,bse_code}
   const [registered, setRegistered] = useState([])
   const [selectedIsin, setSelectedIsin] = useState('')
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState(null)
+  const debounce = useRef(null)
 
   const loadRegistered = () => api.getCompanies().then(setRegistered).catch(() => {})
   useEffect(() => { loadRegistered() }, [])
 
-  const search = async () => {
-    setError(''); setSearched(true)
-    try {
-      const { data, error: e } = await supabase
-        .from('entity_master')
-        .select('isin,name,nse_symbol,bse_code')
-        .or(`name.ilike.%${query}%,nse_symbol.ilike.%${query}%,isin.ilike.%${query}%`)
-        .limit(20)
-      if (e) throw e
-      setMatches(data || [])
-    } catch (e) {
-      setError(e.message)
-    }
+  // Debounced securities-master typeahead (300ms).
+  useEffect(() => {
+    if (debounce.current) clearTimeout(debounce.current)
+    if (!query.trim() || picked) { setMatches([]); return undefined }
+    debounce.current = setTimeout(async () => {
+      setSearching(true); setError('')
+      try {
+        setMatches(await api.searchSecurities(query.trim()))
+      } catch (e) {
+        setError(e.message)
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => debounce.current && clearTimeout(debounce.current)
+  }, [query, picked])
+
+  const choose = (m) => {
+    setPicked({ isin: m.isin, name: m.name, nse_symbol: m.nse_symbol || '',
+      bse_code: m.bse_code || '' })
+    setQuery(`${m.nse_symbol || m.isin} — ${m.name}`)
+    setMatches([])
   }
 
-  const register = async (c) => {
+  const register = async () => {
+    if (!picked) return
     setError(''); setMsg('')
     try {
-      const out = await api.createCompany({
-        isin: c.isin, name: c.name, nse_symbol: c.nse_symbol || '',
-        bse_code: c.bse_code || '',
-      })
+      const out = await api.createCompany(picked)
       setMsg(`Registered ${out.nse_symbol || out.isin}.`)
       setSelectedIsin(out.isin)
+      setPicked(null); setQuery('')
       loadRegistered()
     } catch (e) {
       setError(e.message)
     }
   }
+
+  const setField = (k, v) => setPicked((p) => ({ ...(p || {}), [k]: v }))
 
   const upload = async () => {
     if (!selectedIsin || !file) return
@@ -71,42 +81,50 @@ export default function AddCompany() {
 
       <h3>Search &amp; register</h3>
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" placeholder="Company name, NSE symbol, or ISIN"
-            value={query} onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && search()} />
-          <button className="btn" onClick={search} disabled={!query.trim()}>Search</button>
-        </div>
-        {matches.length > 0 && (
-          <table style={{ marginTop: 12 }}>
-            <thead><tr><th>Name</th><th>NSE</th><th>ISIN</th><th /></tr></thead>
-            <tbody>
+        <label style={label}>Search the NSE securities master (name, symbol, or ISIN)</label>
+        <div style={{ position: 'relative' }}>
+          <input className="input" placeholder="Start typing… e.g. Zydus, ZYDUSLIFE, INE010B01027"
+            value={query} onChange={(e) => { setPicked(null); setQuery(e.target.value) }} />
+          {matches.length > 0 && (
+            <div style={{ position: 'absolute', zIndex: 10, left: 0, right: 0, background: '#fff',
+              border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 4,
+              maxHeight: 280, overflowY: 'auto', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
               {matches.map((m) => (
-                <tr key={m.isin}>
-                  <td>{m.name}</td>
-                  <td className="mono">{m.nse_symbol || '—'}</td>
-                  <td className="mono">{m.isin}</td>
-                  <td><button className="btn btn-ghost" onClick={() => register(m)}>Register</button></td>
-                </tr>
+                <div key={m.isin} onClick={() => choose(m)} style={{ padding: '8px 12px',
+                  cursor: 'pointer', borderBottom: `1px solid ${COLORS.border}` }}>
+                  <div style={{ fontSize: 13 }}>{m.name}</div>
+                  <div className="mono" style={{ fontSize: 11, color: COLORS.muted }}>
+                    {m.nse_symbol || '—'} · {m.isin}
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
+        </div>
+        {searching && <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Searching…</div>}
+        {!picked && query.trim() && !searching && matches.length === 0 && (
+          <button className="btn btn-ghost" style={{ marginTop: 8 }}
+            onClick={() => setPicked({ isin: '', name: '', nse_symbol: '', bse_code: '' })}>
+            Not found — add manually
+          </button>
         )}
-        {searched && matches.length === 0 && (
+
+        {picked && (
           <div style={{ marginTop: 12 }}>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-              No matches — add manually:
-            </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['isin', 'name', 'nse_symbol', 'bse_code'].map((f) => (
-                <input key={f} className="input" style={{ flex: 1, minWidth: 120 }} placeholder={f}
-                  value={manual[f]} onChange={(e) => setManual({ ...manual, [f]: e.target.value })} />
+              {[['isin', 'ISIN'], ['name', 'Name'], ['nse_symbol', 'NSE symbol'],
+                ['bse_code', 'BSE code']].map(([f, ph]) => (
+                <input key={f} className="input" style={{ flex: 1, minWidth: 130 }} placeholder={ph}
+                  value={picked[f] || ''} onChange={(e) => setField(f, e.target.value)} />
               ))}
-              <button className="btn" disabled={!manual.isin || !manual.name}
-                onClick={() => register(manual)}>Register</button>
             </div>
+            <button className="btn" style={{ marginTop: 10 }} disabled={!picked.isin || !picked.name}
+              onClick={register}>Register Company</button>
           </div>
         )}
+        <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+          Not in the list? Type the ISIN and name above to register manually.
+        </div>
       </div>
 
       <h3>Load fundamentals</h3>

@@ -41,6 +41,7 @@ export const api = {
 
   // companies
   getCompanies: () => request('/api/companies'),
+  searchSecurities: (q) => request(`/api/securities/search?q=${encodeURIComponent(q)}`),
   createCompany: (data) => request('/api/companies', { method: 'POST', body: data }),
   getMetrics: (isin) => request(`/api/companies/${isin}/metrics`),
   getFlags: (isin) => request(`/api/companies/${isin}/flags`),
