@@ -45,6 +45,7 @@ export const api = {
   createCompany: (data) => request('/api/companies', { method: 'POST', body: data }),
   getMetrics: (isin) => request(`/api/companies/${isin}/metrics`),
   getFlags: (isin) => request(`/api/companies/${isin}/flags`),
+  getShareholding: (isin) => request(`/api/companies/${isin}/shareholding`),
   uploadFundamentals: (isin, file, opts = {}) => {
     const form = new FormData()
     form.append('file', file)

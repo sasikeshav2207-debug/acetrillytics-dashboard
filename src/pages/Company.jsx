@@ -108,7 +108,7 @@ export default function Company() {
         </div>
       )}
       {tab === 'Financials' && <FinancialsTab metrics={m} fy={s.fy} />}
-      {tab === 'Shareholding' && <ShareholdingTab data={s.shareholding} />}
+      {tab === 'Shareholding' && <ShareholdingTab isin={isin} />}
       {tab === 'Technicals' && <TechnicalsTab metrics={m} />}
       {tab === 'Thesis' && (
         <ThesisTab thesis={t} kills={s.kills} scenarios={s.scenarios}
