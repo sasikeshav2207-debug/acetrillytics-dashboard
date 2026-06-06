@@ -11,17 +11,32 @@ function Badge({ stance }) {
     padding: '2px 10px', borderRadius: 999, textTransform: 'capitalize' }}>{stance || '—'}</span>
 }
 
+const DRAFTS_KEY = 'erb_perspectives_drafts'
+const loadDrafts = () => {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '[]') } catch { return [] }
+}
+const saveDrafts = (list) => {
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(list)) } catch { /* quota */ }
+}
+
 export default function Perspectives() {
   const [companies, setCompanies] = useState([])
   const [isin, setIsin] = useState('')
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
   const [error, setError] = useState('')
+  const [drafts, setDrafts] = useState([])
+  const [savedNote, setSavedNote] = useState('')
 
-  useEffect(() => { api.getCompanies().then(setCompanies).catch((e) => setError(e.message)) }, [])
+  useEffect(() => {
+    api.getCompanies().then(setCompanies).catch((e) => setError(e.message))
+    setDrafts(loadDrafts())
+  }, [])
+
+  const tickerFor = (i) => companies.find((c) => c.isin === i)?.nse_symbol || i
 
   const run = async (value) => {
-    setIsin(value); setOut(null); setError('')
+    setIsin(value); setOut(null); setError(''); setSavedNote('')
     if (!value) return
     setBusy(true)
     try {
@@ -31,6 +46,22 @@ export default function Perspectives() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const saveDraft = () => {
+    if (!out) return
+    const entry = { id: Date.now(), isin, label: tickerFor(isin),
+      savedAt: new Date().toISOString().slice(0, 16).replace('T', ' '), out }
+    const next = [entry, ...drafts].slice(0, 50)
+    setDrafts(next); saveDrafts(next)
+    setSavedNote('Saved to drafts.')
+  }
+
+  const openDraft = (d) => { setIsin(d.isin); setOut(d.out); setError(''); setSavedNote('') }
+
+  const deleteDraft = (id) => {
+    const next = drafts.filter((d) => d.id !== id)
+    setDrafts(next); saveDrafts(next)
   }
 
   const lenses = out?.lenses || []
@@ -50,12 +81,35 @@ export default function Perspectives() {
         ))}
       </select>
 
+      {drafts.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
+            color: COLORS.muted, marginBottom: 6 }}>Saved drafts</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {drafts.map((d) => (
+              <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                border: `1px solid ${COLORS.border}`, borderRadius: 999, padding: '4px 10px',
+                fontSize: 12 }}>
+                <span style={{ cursor: 'pointer', color: COLORS.gold }}
+                  onClick={() => openDraft(d)}>{d.label} · {d.savedAt}</span>
+                <span style={{ cursor: 'pointer', color: COLORS.muted }}
+                  onClick={() => deleteDraft(d.id)} title="Delete">✕</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {busy && <div style={{ marginTop: 16 }} className="muted">Reading through each lens (LLM)…</div>}
       {error && <div style={{ color: COLORS.red, fontSize: 13, marginTop: 12 }}>{error}</div>}
 
       {lenses.length > 0 && (
         <>
-          <div style={{ display: 'flex', gap: 14, marginTop: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
+            <button className="btn btn-ghost" onClick={saveDraft}>Save to drafts</button>
+            {savedNote && <span style={{ fontSize: 12, color: COLORS.green }}>{savedNote}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
             {lenses.map((l, i) => (
               <div key={i} className="card" style={{ flex: 1, minWidth: 260 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between',
