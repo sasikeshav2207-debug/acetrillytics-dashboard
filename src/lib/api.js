@@ -46,6 +46,8 @@ export const api = {
   getMetrics: (isin) => request(`/api/companies/${isin}/metrics`),
   getFlags: (isin) => request(`/api/companies/${isin}/flags`),
   getShareholding: (isin) => request(`/api/companies/${isin}/shareholding`),
+  earningsDraft: (isin, targetFy) =>
+    request(`/api/companies/${isin}/earnings-draft?target_fy=${targetFy || 0}`, { method: 'POST' }),
   uploadFundamentals: (isin, file, opts = {}) => {
     const form = new FormData()
     form.append('file', file)

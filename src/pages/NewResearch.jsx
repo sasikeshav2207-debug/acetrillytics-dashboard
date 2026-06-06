@@ -64,6 +64,11 @@ export default function NewResearch() {
   const [scenarioTab, setScenarioTab] = useState('bull')
   const [commentary, setCommentary] = useState([])
 
+  // earnings-call auto-draft state
+  const [drafting, setDrafting] = useState(false)
+  const [draftSource, setDraftSource] = useState('')
+  const [draftError, setDraftError] = useState('')
+
   // submission state
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -77,6 +82,28 @@ export default function NewResearch() {
 
   const ticker = useMemo(
     () => companies.find((c) => c.isin === isin)?.nse_symbol || '', [companies, isin])
+
+  const draftFromEarnings = async () => {
+    if (!isin) { setDraftError('Pick a company first (Step 1).'); return }
+    setDrafting(true); setDraftError(''); setDraftSource('')
+    try {
+      const d = await api.earningsDraft(isin, Number(targetFy))
+      const items = (d.commentary || []).map((c) => ({
+        text: c.text || '', source_doc: c.source_doc || d.source_doc || '',
+        source_date: (c.source_date || d.source_date || '').slice(0, 10),
+        topic: TOPICS.includes(c.topic) ? c.topic : 'other',
+        target_date: (c.target_date || '').slice(0, 10),
+      })).filter((c) => c.text)
+      if (items.length) setCommentary(items)
+      if (!thesisStatement && d.thesis_statement) setThesisStatement(d.thesis_statement)
+      setDraftSource(`${d.source_doc || 'BSE filing'}${d.source_date ? ` (${d.source_date})` : ''}`
+        + ` — ${items.length} commentary item(s) drafted. Review every quote.`)
+    } catch (e) {
+      setDraftError(e.message)
+    } finally {
+      setDrafting(false)
+    }
+  }
 
   const canNext = () => {
     if (step === 0) return !!isin
@@ -259,6 +286,23 @@ export default function NewResearch() {
       {step === 4 && (
         <div className="card" style={cardStyle}>
           <label style={label}>Management commentary (verbatim, with source)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            marginBottom: 10 }}>
+            <button className="btn btn-ghost" disabled={drafting || !isin}
+              onClick={draftFromEarnings}>
+              {drafting ? 'Fetching from BSE…' : 'Auto-fetch from latest earnings call (BSE)'}
+            </button>
+            <span style={{ fontSize: 11, color: COLORS.muted }}>
+              Pulls the latest transcript from BSE filings and drafts verbatim quotes — review
+              each before generating.
+            </span>
+          </div>
+          {draftSource && (
+            <div style={{ fontSize: 12, color: COLORS.green, marginBottom: 8 }}>{draftSource}</div>
+          )}
+          {draftError && (
+            <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 8 }}>{draftError}</div>
+          )}
           {commentary.map((c, i) => (
             <div key={i} style={{ borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 8,
               marginBottom: 8 }}>
