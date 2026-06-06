@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { COLORS } from '../lib/format'
 import { useReportJob } from '../hooks/useReportJob'
 
+const DRAFT_KEY = 'erb_newresearch_draft'  // browser autosave so work survives refresh/failed submit
 const STEPS = ['Company', 'Thesis', 'Kill Criteria', 'Scenarios', 'Commentary']
 const TARGET_FYS = [2027, 2028, 2029]
 const METRICS = ['interest_coverage', 'debt_equity', 'cfo_pat', 'revenue_cagr_3y', 'pat_cagr_3y',
@@ -75,10 +76,43 @@ export default function NewResearch() {
   const [thesisId, setThesisId] = useState(null)
   const job = useReportJob(thesisId, { enabled: !!thesisId })
 
+  const [restored, setRestored] = useState(false)
+  const loadedRef = useRef(false)
+
   useEffect(() => {
     api.getCompanies().then(setCompanies).catch((e) => setError(e.message))
     supabase.auth.getSession().then(({ data }) => setAuthorEmail(data?.session?.user?.email || ''))
+    // Restore any auto-saved draft (survives refresh / failed submit).
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null')
+      if (d) {
+        if (d.isin) setIsin(d.isin)
+        if (d.targetFy) setTargetFy(d.targetFy)
+        if (d.thesisStatement) setThesisStatement(d.thesisStatement)
+        if (d.killRationale) setKillRationale(d.killRationale)
+        if (Array.isArray(d.kills) && d.kills.length) setKills(d.kills)
+        if (d.scenarios) setScenarios(d.scenarios)
+        if (Array.isArray(d.commentary) && d.commentary.length) setCommentary(d.commentary)
+        if (d.commentary?.length || d.thesisStatement) setRestored(true)
+      }
+    } catch { /* ignore corrupt draft */ }
+    loadedRef.current = true
   }, [])
+
+  // Auto-save the whole form on any change (skipped until the restore pass has run).
+  useEffect(() => {
+    if (!loadedRef.current) return
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        isin, targetFy, thesisStatement, killRationale, kills, scenarios, commentary,
+      }))
+    } catch { /* quota / private mode */ }
+  }, [isin, targetFy, thesisStatement, killRationale, kills, scenarios, commentary])
+
+  const clearDraft = () => {
+    try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    setRestored(false)
+  }
 
   const ticker = useMemo(
     () => companies.find((c) => c.isin === isin)?.nse_symbol || '', [companies, isin])
@@ -135,6 +169,7 @@ export default function NewResearch() {
       }
       const created = await api.createThesis(body)
       setThesisId(created.thesis_id)
+      clearDraft()  // success — discard the autosaved draft
       await api.generateReport(created.thesis_id)
     } catch (e) {
       setError(e.message)
@@ -181,6 +216,14 @@ export default function NewResearch() {
     <div>
       <h1>New Research</h1>
       <StepBar step={step} />
+      <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 8 }}>
+        {restored
+          ? '↩ Restored your saved draft. '
+          : 'Your entries auto-save in this browser. '}
+        <span style={{ color: COLORS.gold, cursor: 'pointer' }} onClick={clearDraft}>
+          Clear saved draft
+        </span>
+      </div>
       {error && <div style={{ color: COLORS.red, fontSize: 13, marginBottom: 10 }}>{error}</div>}
 
       {step === 0 && (
