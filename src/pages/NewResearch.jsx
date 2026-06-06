@@ -1,0 +1,311 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
+import { COLORS } from '../lib/format'
+import { useReportJob } from '../hooks/useReportJob'
+
+const STEPS = ['Company', 'Thesis', 'Kill Criteria', 'Scenarios', 'Commentary']
+const TARGET_FYS = [2027, 2028, 2029]
+const METRICS = ['interest_coverage', 'debt_equity', 'cfo_pat', 'revenue_cagr_3y', 'pat_cagr_3y',
+  'roce', 'roe', 'opm', 'npm', 'pe_ttm', 'pb_ratio', 'ev_ebitda', 'gross_margin']
+const COMPARATORS = ['<', '<=', '>', '>=', '==', '!=']
+const TOPICS = ['guidance', 'pipeline', 'capex', 'm&a', 'capacity', 'regulatory', 'other']
+const DEFAULT_KILLS = [
+  { target: 'interest_coverage', comparator: '<', threshold: 1.5, rationale: 'Debt servicing at risk' },
+  { target: 'debt_equity', comparator: '>', threshold: 1.5, rationale: 'Leverage too high' },
+  { target: 'cfo_pat', comparator: '<', threshold: 0.6, rationale: 'Poor cash conversion' },
+  { target: 'revenue_cagr_3y', comparator: '<', threshold: 0, rationale: 'Top line contracting' },
+]
+
+const cardStyle = { marginBottom: 12 }
+const label = { fontSize: 12, color: COLORS.muted, display: 'block', marginBottom: 4 }
+
+function StepBar({ step }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      {STEPS.map((s, i) => (
+        <div key={s} style={{
+          display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+          color: i === step ? COLORS.gold : (i < step ? COLORS.green : COLORS.muted),
+          fontWeight: i === step ? 600 : 400,
+        }}>
+          <span style={{
+            width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
+            alignItems: 'center', justifyContent: 'center', fontSize: 11,
+            border: `1px solid ${i === step ? COLORS.gold : COLORS.border}`,
+            background: i < step ? COLORS.green : 'transparent',
+            color: i < step ? '#fff' : 'inherit',
+          }}>{i < step ? '✓' : i + 1}</span>
+          {s}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function NewResearch() {
+  const nav = useNavigate()
+  const [companies, setCompanies] = useState([])
+  const [step, setStep] = useState(0)
+  const [authorEmail, setAuthorEmail] = useState('')
+
+  // form state
+  const [isin, setIsin] = useState('')
+  const [targetFy, setTargetFy] = useState(TARGET_FYS[0])
+  const [thesisStatement, setThesisStatement] = useState('')
+  const [killRationale, setKillRationale] = useState('')
+  const [kills, setKills] = useState(DEFAULT_KILLS)
+  const [scenarios, setScenarios] = useState({
+    bull: { assumptions: '', key_metrics: '', rationale: '' },
+    base: { assumptions: '', key_metrics: '', rationale: '' },
+    bear: { assumptions: '', key_metrics: '', rationale: '' },
+  })
+  const [scenarioTab, setScenarioTab] = useState('bull')
+  const [commentary, setCommentary] = useState([])
+
+  // submission state
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [thesisId, setThesisId] = useState(null)
+  const job = useReportJob(thesisId, { enabled: !!thesisId })
+
+  useEffect(() => {
+    api.getCompanies().then(setCompanies).catch((e) => setError(e.message))
+    supabase.auth.getSession().then(({ data }) => setAuthorEmail(data?.session?.user?.email || ''))
+  }, [])
+
+  const ticker = useMemo(
+    () => companies.find((c) => c.isin === isin)?.nse_symbol || '', [companies, isin])
+
+  const canNext = () => {
+    if (step === 0) return !!isin
+    if (step === 1) return thesisStatement.trim().length >= 50
+    if (step === 2) return kills.some((k) => k.target && k.threshold !== '' && k.threshold != null)
+    return true
+  }
+
+  const submit = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      const body = {
+        isin,
+        ticker,
+        thesis_statement: thesisStatement,
+        kill_rationale: killRationale,
+        target_fy: Number(targetFy),
+        author: authorEmail || 'Acetrillytics Research',
+        kill_criteria: kills
+          .filter((k) => k.target && k.threshold !== '' && k.threshold != null)
+          .map((k) => ({ kind: 'metric', target: k.target, comparator: k.comparator,
+            threshold: Number(k.threshold), rationale: k.rationale })),
+        scenarios,
+        management_commentary: commentary.map((c) => ({
+          text: c.text, source_doc: c.source_doc, source_date: c.source_date || null,
+          topic: c.topic || 'other', target_date: c.target_date || null,
+        })),
+      }
+      const created = await api.createThesis(body)
+      setThesisId(created.thesis_id)
+      await api.generateReport(created.thesis_id)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ---- After submission: progress + downloads ----
+  if (thesisId) {
+    return (
+      <div>
+        <h1>New Research</h1>
+        <div className="card" style={{ maxWidth: 640 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            Thesis created → <span className="mono">{thesisId}</span>
+          </div>
+          {!job.isComplete ? (
+            <div style={{ color: COLORS.muted }}>
+              <span className="dot" style={{ background: COLORS.gold }} /> Report generating…
+              this runs in the background (GitHub Actions) and usually takes a few minutes.
+            </div>
+          ) : (
+            <div>
+              <div style={{ color: COLORS.green, marginBottom: 10 }}>Report ready.</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {['pdf', 'pptx', 'excel', 'docx'].map((f) => job.reportUrls?.[f] && (
+                  <a key={f} className="btn btn-ghost" href={job.reportUrls[f]}
+                    target="_blank" rel="noreferrer">{f.toUpperCase()}</a>
+                ))}
+              </div>
+            </div>
+          )}
+          {job.error && <div style={{ color: COLORS.red, marginTop: 8 }}>{job.error}</div>}
+          <div style={{ marginTop: 16 }}>
+            <button className="btn" onClick={() => nav('/reports')}>Go to Reports</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h1>New Research</h1>
+      <StepBar step={step} />
+      {error && <div style={{ color: COLORS.red, fontSize: 13, marginBottom: 10 }}>{error}</div>}
+
+      {step === 0 && (
+        <div className="card" style={cardStyle}>
+          <label style={label}>Company</label>
+          {companies.length === 0 ? (
+            <div className="muted">Add a company first.</div>
+          ) : (
+            <select className="input" value={isin} onChange={(e) => setIsin(e.target.value)}>
+              <option value="">Select a company…</option>
+              {companies.map((c) => (
+                <option key={c.isin} value={c.isin}>
+                  {c.nse_symbol || c.isin} — {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <label style={{ ...label, marginTop: 12 }}>Target FY</label>
+          <select className="input" value={targetFy} onChange={(e) => setTargetFy(e.target.value)}>
+            {TARGET_FYS.map((fy) => <option key={fy} value={fy}>FY{fy}</option>)}
+          </select>
+        </div>
+      )}
+
+      {step === 1 && (
+        <div className="card" style={cardStyle}>
+          <label style={label}>Thesis statement (min 50 chars)</label>
+          <textarea className="input" rows={5} value={thesisStatement}
+            onChange={(e) => setThesisStatement(e.target.value)}
+            placeholder="The market is mispricing … because …" />
+          <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+            {thesisStatement.trim().length}/50
+          </div>
+          <label style={{ ...label, marginTop: 12 }}>Kill rationale</label>
+          <textarea className="input" rows={3} value={killRationale}
+            onChange={(e) => setKillRationale(e.target.value)} />
+          <label style={{ ...label, marginTop: 12 }}>Author</label>
+          <input className="input" value={authorEmail} readOnly />
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="card" style={cardStyle}>
+          <label style={label}>Kill criteria — conditions that would falsify the thesis</label>
+          {kills.map((k, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+              <select className="input" style={{ flex: 2 }} value={k.target}
+                onChange={(e) => setKills(kills.map((x, j) => j === i
+                  ? { ...x, target: e.target.value } : x))}>
+                {METRICS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <select className="input" style={{ width: 70 }} value={k.comparator}
+                onChange={(e) => setKills(kills.map((x, j) => j === i
+                  ? { ...x, comparator: e.target.value } : x))}>
+                {COMPARATORS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <input className="input" style={{ width: 90 }} type="number" value={k.threshold}
+                onChange={(e) => setKills(kills.map((x, j) => j === i
+                  ? { ...x, threshold: e.target.value } : x))} />
+              <input className="input" style={{ flex: 2 }} value={k.rationale}
+                placeholder="rationale"
+                onChange={(e) => setKills(kills.map((x, j) => j === i
+                  ? { ...x, rationale: e.target.value } : x))} />
+              <button className="btn btn-ghost" onClick={() =>
+                setKills(kills.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ marginTop: 6 }} onClick={() =>
+            setKills([...kills, { target: METRICS[0], comparator: '<', threshold: 0, rationale: '' }])}>
+            + Add criterion
+          </button>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="card" style={cardStyle}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+            {['bull', 'base', 'bear'].map((t) => (
+              <span key={t} onClick={() => setScenarioTab(t)} style={{
+                cursor: 'pointer', fontSize: 13, textTransform: 'capitalize', paddingBottom: 3,
+                color: scenarioTab === t ? COLORS.gold : COLORS.muted,
+                borderBottom: scenarioTab === t ? `2px solid ${COLORS.gold}` : 'none',
+              }}>{t}</span>
+            ))}
+          </div>
+          {['assumptions', 'key_metrics', 'rationale'].map((field) => (
+            <div key={field} style={{ marginBottom: 8 }}>
+              <label style={label}>
+                {field === 'key_metrics' ? "Key metrics (one 'name = value' per line)"
+                  : field.charAt(0).toUpperCase() + field.slice(1)}
+              </label>
+              <textarea className="input" rows={field === 'key_metrics' ? 3 : 2}
+                value={scenarios[scenarioTab][field]}
+                onChange={(e) => setScenarios({
+                  ...scenarios,
+                  [scenarioTab]: { ...scenarios[scenarioTab], [field]: e.target.value },
+                })} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {step === 4 && (
+        <div className="card" style={cardStyle}>
+          <label style={label}>Management commentary (verbatim, with source)</label>
+          {commentary.map((c, i) => (
+            <div key={i} style={{ borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 8,
+              marginBottom: 8 }}>
+              <textarea className="input" rows={2} placeholder="Verbatim quote" value={c.text}
+                onChange={(e) => setCommentary(commentary.map((x, j) => j === i
+                  ? { ...x, text: e.target.value } : x))} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                <input className="input" style={{ flex: 2 }} placeholder="Source doc"
+                  value={c.source_doc || ''}
+                  onChange={(e) => setCommentary(commentary.map((x, j) => j === i
+                    ? { ...x, source_doc: e.target.value } : x))} />
+                <input className="input" style={{ width: 150 }} type="date"
+                  value={c.source_date || ''}
+                  onChange={(e) => setCommentary(commentary.map((x, j) => j === i
+                    ? { ...x, source_date: e.target.value } : x))} />
+                <select className="input" style={{ width: 130 }} value={c.topic || 'other'}
+                  onChange={(e) => setCommentary(commentary.map((x, j) => j === i
+                    ? { ...x, topic: e.target.value } : x))}>
+                  {TOPICS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input className="input" style={{ width: 150 }} type="date"
+                  placeholder="target date" value={c.target_date || ''}
+                  onChange={(e) => setCommentary(commentary.map((x, j) => j === i
+                    ? { ...x, target_date: e.target.value } : x))} />
+                <button className="btn btn-ghost" onClick={() =>
+                  setCommentary(commentary.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button className="btn btn-ghost" onClick={() => setCommentary([...commentary,
+            { text: '', source_doc: '', source_date: '', topic: 'other', target_date: '' }])}>
+            + Add commentary
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
+        <button className="btn btn-ghost" disabled={step === 0}
+          onClick={() => setStep(step - 1)}>Back</button>
+        {step < STEPS.length - 1 ? (
+          <button className="btn" disabled={!canNext()}
+            onClick={() => setStep(step + 1)}>Next</button>
+        ) : (
+          <button className="btn" disabled={submitting}
+            onClick={submit}>{submitting ? 'Creating…' : 'Create Thesis & Generate Report'}</button>
+        )}
+      </div>
+    </div>
+  )
+}

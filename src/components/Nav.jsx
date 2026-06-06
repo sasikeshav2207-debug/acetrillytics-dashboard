@@ -2,8 +2,13 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 const LINKS = [
-  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/dashboard', label: 'Overview' },
+  { to: '/companies', label: 'Companies' },
+  { to: '/new-research', label: 'New Research' },
   { to: '/reports', label: 'Reports' },
+  { to: '/add-company', label: 'Add Company' },
+  { to: '/import-angelone', label: 'Import AngelOne' },
+  { to: '/perspectives', label: 'Perspectives' },
 ]
 
 export default function Nav() {
@@ -31,10 +36,6 @@ export default function Nav() {
               paddingBottom: 2,
             }}>{l.label}</Link>
           ))}
-          <span title="Report generation runs in the local Streamlit dashboard"
-            style={{ fontSize: 13, color: '#AAA', cursor: 'default' }}>
-            New Research → use local dashboard
-          </span>
           <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
         </div>
       </div>
