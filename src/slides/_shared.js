@@ -38,3 +38,9 @@ export function frame(bg = COLORS.cream) {
 
 export const serif = "'Playfair Display', serif"
 export const mono = "'DM Mono', monospace"
+
+// Background treatments for varied, designer themes (not flat blue everywhere).
+export const NAVY_GRAD = 'linear-gradient(135deg, #232C6B 0%, #141A45 55%, #0B0F2B 100%)'
+export const CREAM_GRAD =
+  'radial-gradient(1100px 600px at 100% -10%, #FFFDF7 0%, #FAF7F0 55%, #F3EEE4 100%)'
+export const navyInk = '#0B0F2B'
