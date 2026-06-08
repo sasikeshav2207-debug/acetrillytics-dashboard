@@ -12,6 +12,8 @@ import ImportAngelOne from './pages/ImportAngelOne.jsx'
 import Perspectives from './pages/Perspectives.jsx'
 import Slides from './pages/Slides.jsx'
 
+const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || '').trim().toLowerCase()
+
 function RequireAuth() {
   const [session, setSession] = useState(undefined) // undefined = still loading
   useEffect(() => {
@@ -21,6 +23,18 @@ function RequireAuth() {
   }, [])
   if (session === undefined) return <div className="container">Loading…</div>
   if (!session) return <Navigate to="/" replace />
+  // Optional single-user gate: if VITE_ALLOWED_EMAIL is set, anyone else is denied + signed out.
+  const email = (session.user?.email || '').toLowerCase()
+  if (ALLOWED_EMAIL && email !== ALLOWED_EMAIL) {
+    return (
+      <div className="container" style={{ textAlign: 'center', paddingTop: '18vh' }}>
+        <h1 style={{ marginBottom: 8 }}>Access denied</h1>
+        <p className="muted">This account ({session.user?.email}) is not authorized.</p>
+        <button className="btn" style={{ marginTop: 16 }}
+          onClick={() => supabase.auth.signOut()}>Sign out</button>
+      </div>
+    )
+  }
   return (
     <>
       <Nav />

@@ -25,6 +25,7 @@ jobs:
           # The backend base URL is not secret; fall back to the known Render URL so the
           # build always has it even if the VITE_API_URL repo secret was never added.
           VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://acetrillytics-research.onrender.com' }}
+          VITE_ALLOWED_EMAIL: ${{ secrets.VITE_ALLOWED_EMAIL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
