@@ -14,6 +14,34 @@ import Slides from './pages/Slides.jsx'
 
 const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || '').trim().toLowerCase()
 
+function SetPassword({ onDone }) {
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const save = async () => {
+    setErr(''); setBusy(true)
+    const { error } = await supabase.auth.updateUser({ password: pw })
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onDone()
+  }
+  return (
+    <div className="container" style={{ textAlign: 'center', paddingTop: '16vh' }}>
+      <h1 style={{ marginBottom: 8 }}>Set your password</h1>
+      <p className="muted">Choose a password for future sign-ins.</p>
+      <div style={{ maxWidth: 360, margin: '16px auto 0' }}>
+        <input className="input" type="password" placeholder="New password" value={pw}
+          autoComplete="new-password" onChange={(e) => setPw(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && pw && save()} />
+        <button className="btn" style={{ marginTop: 12, width: '100%' }}
+          onClick={save} disabled={busy || pw.length < 6}>
+          {busy ? 'Saving…' : 'Save password'}</button>
+        {err && <div style={{ color: '#E84040', fontSize: 12, marginTop: 12 }}>{err}</div>}
+      </div>
+    </div>
+  )
+}
+
 function RequireAuth() {
   const [session, setSession] = useState(undefined) // undefined = still loading
   useEffect(() => {
@@ -44,6 +72,14 @@ function RequireAuth() {
 }
 
 export default function App() {
+  const [recovery, setRecovery] = useState(false)
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [])
+  if (recovery) return <SetPassword onDone={() => setRecovery(false)} />
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
