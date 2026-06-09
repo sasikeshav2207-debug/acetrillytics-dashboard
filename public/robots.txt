@@ -1,0 +1,3 @@
+# Private, single-user research tool. Do not crawl or index any of it.
+User-agent: *
+Disallow: /
