@@ -35,26 +35,38 @@ export default function Perspectives() {
 
   const tickerFor = (i) => companies.find((c) => c.isin === i)?.nse_symbol || i
 
-  const run = async (value) => {
-    setIsin(value); setOut(null); setError(''); setSavedNote('')
-    if (!value) return
-    setBusy(true)
+  const draftForIsin = (i) => drafts.find((d) => d.isin === i)
+
+  // Persist generated commentary so we never pay for the same LLM run twice. One draft per
+  // company (newest replaces older), so revisiting a company reuses the saved copy.
+  const persist = (value, output) => {
+    const entry = { id: Date.now(), isin: value, label: tickerFor(value),
+      savedAt: new Date().toISOString().slice(0, 16).replace('T', ' '), out: output }
+    const next = [entry, ...drafts.filter((d) => d.isin !== value)].slice(0, 50)
+    setDrafts(next); saveDrafts(next)
+  }
+
+  const run = async (value, { force = false } = {}) => {
+    setIsin(value); setError(''); setSavedNote('')
+    if (!value) { setOut(null); return }
+    // Reuse the saved commentary instead of spending tokens again, unless forced.
+    const cached = force ? null : draftForIsin(value)
+    if (cached) {
+      setOut(cached.out)
+      setSavedNote(`Loaded saved commentary (${cached.savedAt}) — no tokens used.`)
+      return
+    }
+    setOut(null); setBusy(true)
     try {
-      setOut(await api.getPerspectives(value))
+      const result = await api.getPerspectives(value)
+      setOut(result)
+      persist(value, result)          // auto-save every generated run
+      setSavedNote('Generated and saved to drafts.')
     } catch (e) {
       setError(e.message)
     } finally {
       setBusy(false)
     }
-  }
-
-  const saveDraft = () => {
-    if (!out) return
-    const entry = { id: Date.now(), isin, label: tickerFor(isin),
-      savedAt: new Date().toISOString().slice(0, 16).replace('T', ' '), out }
-    const next = [entry, ...drafts].slice(0, 50)
-    setDrafts(next); saveDrafts(next)
-    setSavedNote('Saved to drafts.')
   }
 
   const openDraft = (d) => { setIsin(d.isin); setOut(d.out); setError(''); setSavedNote('') }
@@ -106,7 +118,10 @@ export default function Perspectives() {
       {lenses.length > 0 && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
-            <button className="btn btn-ghost" onClick={saveDraft}>Save to drafts</button>
+            <button className="btn btn-ghost" onClick={() => run(isin, { force: true })}
+              disabled={busy || !isin}
+              title="Discard the saved copy and run the LLM again (uses tokens)">
+              Regenerate (uses tokens)</button>
             {savedNote && <span style={{ fontSize: 12, color: COLORS.green }}>{savedNote}</span>}
           </div>
           <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
