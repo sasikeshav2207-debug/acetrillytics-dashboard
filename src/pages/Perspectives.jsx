@@ -11,6 +11,47 @@ function Badge({ stance }) {
     padding: '2px 10px', borderRadius: 999, textTransform: 'capitalize' }}>{stance || '—'}</span>
 }
 
+// Verbatim management quotes from the last few earnings calls, grouped by call (newest first).
+function ManagementSays({ says, note }) {
+  const calls = says || []
+  return (
+    <div style={{ marginTop: 18 }}>
+      <h3 style={{ margin: '0 0 4px' }}>What did management say?</h3>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        Verbatim quotes from the last {calls.length || 'few'} earnings call{calls.length === 1 ? '' : 's'},
+        straight from the BSE transcripts — management representations, not verified facts.
+      </div>
+      {calls.length === 0 && (
+        <div className="muted" style={{ fontSize: 13 }}>
+          {note || 'No earnings-call transcripts available for this company yet.'}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        {calls.map((c, i) => (
+          <div key={i} className="card" style={{ flex: 1, minWidth: 300 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+              marginBottom: 8 }}>
+              <strong style={{ fontSize: 13 }}>{c.source_date || 'Call'}</strong>
+              <span style={{ fontSize: 11, color: COLORS.muted, maxWidth: 180, textAlign: 'right',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={c.source_doc}>{c.source_doc}</span>
+            </div>
+            {(c.quotes || []).map((q, j) => (
+              <div key={j} style={{ marginBottom: 10, borderLeft: `3px solid ${COLORS.gold}`,
+                paddingLeft: 10 }}>
+                <div style={{ fontSize: 13, fontStyle: 'italic', color: '#333' }}>“{q.text}”</div>
+                <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 2 }}>
+                  {q.topic}{q.speaker ? ` · ${q.speaker}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const DRAFTS_KEY = 'erb_perspectives_drafts'
 const loadDrafts = () => {
   try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '[]') } catch { return [] }
@@ -124,7 +165,11 @@ export default function Perspectives() {
               Regenerate (uses tokens)</button>
             {savedNote && <span style={{ fontSize: 12, color: COLORS.green }}>{savedNote}</span>}
           </div>
-          <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
+
+          <ManagementSays says={out.management_says} note={out.management_note} />
+
+          <h3 style={{ marginTop: 22 }}>How different investors would read it</h3>
+          <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
             {lenses.map((l, i) => (
               <div key={i} className="card" style={{ flex: 1, minWidth: 260 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between',

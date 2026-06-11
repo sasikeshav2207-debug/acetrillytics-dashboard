@@ -132,6 +132,62 @@ export default function NewResearch() {
       + ` — ${items.length} commentary item(s) drafted. Review every quote.`)
   }
 
+  // Pull a previously-generated Perspectives run (saved in the browser) into this thesis draft:
+  // verbatim management quotes -> commentary, and the lens opinions -> seeded thesis/scenarios.
+  const importFromPerspectives = () => {
+    if (!isin) { setDraftError('Pick a company first (Step 1).'); return }
+    setDraftError(''); setDraftSource('')
+    let saved = null
+    try {
+      const list = JSON.parse(localStorage.getItem('erb_perspectives_drafts') || '[]')
+      saved = list.find((d) => d.isin === isin)
+    } catch { /* ignore corrupt store */ }
+    if (!saved) {
+      setDraftError('No saved Perspectives for this company. Open the Perspectives page and '
+        + 'generate it first (it auto-saves), then come back.')
+      return
+    }
+    const out = saved.out || {}
+    // 1) Verbatim management quotes -> commentary (real source + date).
+    const mgmt = (out.management_says || []).flatMap((call) =>
+      (call.quotes || []).map((q) => ({
+        text: q.text || '', source_doc: call.source_doc || '',
+        source_date: (call.source_date || '').slice(0, 10),
+        topic: TOPICS.includes(q.topic) ? q.topic : 'other', target_date: '',
+      })).filter((c) => c.text))
+    // 2) Lens opinions -> labeled notes (analytical opinion, clearly NOT a management quote).
+    const lensNotes = (out.lenses || []).map((l) => ({
+      text: `[${l.lens} — ${l.stance}] ${l.summary || ''}`
+        + (l.bull_points?.length ? `\nFor: ${l.bull_points.join('; ')}` : '')
+        + (l.bear_points?.length ? `\nAgainst: ${l.bear_points.join('; ')}` : ''),
+      source_doc: 'Perspectives (analytical opinion — not verified)', source_date: '',
+      topic: 'other', target_date: '',
+    }))
+    setCommentary([...mgmt, ...lensNotes])
+    // 3) Seed the thesis statement if still blank.
+    if (!thesisStatement) {
+      const lead = (out.lenses || [])[0]
+      if (lead?.summary) setThesisStatement(`(Seed from Perspectives — edit) ${lead.summary}`)
+    }
+    // 4) Seed bull/base/bear scenarios from the lenses (only blank fields, never overwrite).
+    const lenses = out.lenses || []
+    const bullLens = lenses.find((l) => l.stance === 'bull') || lenses[0]
+    const bearLens = lenses.find((l) => l.stance === 'bear') || lenses[lenses.length - 1]
+    setScenarios((s) => ({
+      bull: { ...s.bull,
+        assumptions: s.bull.assumptions || (bullLens?.bull_points || []).join('\n'),
+        rationale: s.bull.rationale || bullLens?.summary || '' },
+      base: { ...s.base,
+        assumptions: s.base.assumptions || (out.what_to_watch || []).join('\n'),
+        rationale: s.base.rationale || (out.disagreements || []).join('\n') },
+      bear: { ...s.bear,
+        assumptions: s.bear.assumptions || (bearLens?.bear_points || []).join('\n'),
+        rationale: s.bear.rationale || bearLens?.summary || '' },
+    }))
+    setDraftSource(`Imported from Perspectives (saved ${saved.savedAt}) — ${mgmt.length} verbatim `
+      + `quote(s) + ${lensNotes.length} lens note(s), thesis + scenarios seeded. Review each.`)
+  }
+
   const draftFromEarnings = async () => {
     if (!isin) { setDraftError('Pick a company first (Step 1).'); return }
     setDrafting(true); setDraftError(''); setDraftSource('')
@@ -263,6 +319,22 @@ export default function NewResearch() {
           <select className="input" value={targetFy} onChange={(e) => setTargetFy(e.target.value)}>
             {TARGET_FYS.map((fy) => <option key={fy} value={fy}>FY{fy}</option>)}
           </select>
+
+          <div style={{ marginTop: 16, borderTop: `1px solid ${COLORS.border}`, paddingTop: 12 }}>
+            <button className="btn btn-ghost" disabled={!isin} onClick={importFromPerspectives}>
+              Import from Perspectives
+            </button>
+            <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 6 }}>
+              Pulls a saved Perspectives run for this company: verbatim management quotes →
+              commentary, and the lens views → seeded thesis & scenarios. Review every field.
+            </div>
+            {draftSource && (
+              <div style={{ fontSize: 12, color: COLORS.green, marginTop: 8 }}>{draftSource}</div>
+            )}
+            {draftError && (
+              <div style={{ fontSize: 12, color: COLORS.red, marginTop: 8 }}>{draftError}</div>
+            )}
+          </div>
         </div>
       )}
 
